@@ -50,7 +50,7 @@ jobs:
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
         continue-on-error: true
 
-      # Fetch SonarCloud issues for local analysis
+      # Fetch SonarCloud issues for local analysis. Disable Auto
       - name: Fetch SonarCloud Issues
         run: |
           curl -u ${{ secrets.SONAR_TOKEN }}: \
