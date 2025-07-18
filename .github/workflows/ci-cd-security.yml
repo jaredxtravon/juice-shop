@@ -1,0 +1,114 @@
+name: Secure CI/CD Pipeline for OWASP Juice Shop
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  security-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for SonarCloud to analyze git history
+
+      # Set up Node.js environment
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Install dependencies and fix libxmljs2
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install --save-dev libxmljs2@0.36.0  # Pin to Node.js 20 compatible version
+
+      # Fix dependency vulnerabilities
+      - name: Fix dependency vulnerabilities
+        run: npm audit fix || echo "Some vulnerabilities could not be fixed automatically"
+
+      # Run SonarCloud Scan
+      - name: Run SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v3.0.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=jaredxtravon_juice-shop
+            -Dsonar.organization=jaredxtravon
+            -Dsonar.exclusions=frontend/dist/**,test/**,dist/**
+            -Dsonar.sources=routes,lib,frontend/src
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+        continue-on-error: true
+
+      # Fetch SonarCloud issues for local analysis
+      - name: Fetch SonarCloud Issues
+        run: |
+          curl -u ${{ secrets.SONAR_TOKEN }}: \
+            "https://sonarcloud.io/api/issues/search?projectKeys=jaredxtravon_juice-shop&statuses=OPEN,CONFIRMED" \
+            > sonar-report.json
+        continue-on-error: true
+
+      # Build Docker image for Juice Shop
+      - name: Build Docker image
+        run: docker build -t juice-shop:${{ github.sha }} .
+
+      # Run Juice Shop container for DAST
+      - name: Run Juice Shop container
+        run: |
+          docker run -d --name juice-shop -p 3000:3000 juice-shop:${{ github.sha }}
+          sleep 20
+          curl -f http://localhost:3000 || exit 1
+
+      # Run DAST with OWASP ZAP
+      - name: Run OWASP ZAP DAST scan
+        run: |
+          docker run --rm --network host -v $(pwd):/zap/wrk/:rw ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://localhost:3000 -r zap-report.html -J zap-report.json
+        continue-on-error: true
+
+      # Set up Python for AI analysis
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Install Python dependencies for AI script
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install openai
+
+      # Run AI script to analyze results and apply fixes
+      - name: Analyze scan results and apply fixes with OpenAI
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python analyze_results.py
+        continue-on-error: true
+
+      # Upload scan reports and patched files
+      - name: Upload scan reports and patched files
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            sonar-report.json
+            zap-report.json
+            zap-report.html
+            ai-analysis-report.txt
+            patched_files/
+
+      # Cleanup: Stop and remove Juice Shop container
+      - name: Cleanup
+        run: |
+          docker stop juice-shop
+          docker rm juice-shop
