@@ -25,11 +25,11 @@ jobs:
         with:
           node-version: '20'
 
-      # Install dependencies and fix libxmljs2
+      # Install dependencies
       - name: Install dependencies
         run: |
           npm install
-          npm install --save-dev libxmljs2@0.36.0  # Pin to Node.js 20 compatible version
+          
 
       # Fix dependency vulnerabilities
       - name: Fix dependency vulnerabilities
