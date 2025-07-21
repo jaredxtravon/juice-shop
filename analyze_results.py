@@ -81,7 +81,7 @@ Format the response as:
 """
         try:
             response = client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "You are a cybersecurity expert specializing in secure JavaScript coding practices."},
                     {"role": "user", "content": prompt}
@@ -138,7 +138,7 @@ Format the response as:
 """
             try:
                 response = client.chat.completions.create(
-                    model="gpt-4",
+                    model="gpt-4o",
                     messages=[
                         {"role": "system", "content": "You are a cybersecurity expert specializing in secure web application practices."},
                         {"role": "user", "content": prompt}
