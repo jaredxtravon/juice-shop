@@ -17,7 +17,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required for SonarCloud to analyze git history
+          fetch-depth: 0
 
       # Set up Node.js environment
       - name: Set up Node.js
@@ -27,15 +27,13 @@ jobs:
 
       # Install dependencies
       - name: Install dependencies
-        run: |
-          npm install
-          
+        run: npm install
 
-      # Fix dependency vulnerabilities
+      # Fix known dependency vulnerabilities
       - name: Fix dependency vulnerabilities
         run: npm audit fix || echo "Some vulnerabilities could not be fixed automatically"
 
-      # Run SonarCloud Scan
+      # Run SonarCloud SAST scan
       - name: Run SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3.0.0
         env:
@@ -50,7 +48,7 @@ jobs:
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
         continue-on-error: true
 
-      # Fetch SonarCloud issues for local analysis. Disable Auto
+      # Fetch SonarCloud issues as JSON
       - name: Fetch SonarCloud Issues
         run: |
           curl -u ${{ secrets.SONAR_TOKEN }}: \
@@ -58,47 +56,54 @@ jobs:
             > sonar-report.json
         continue-on-error: true
 
-      # Build Docker image for Juice Shop
+      # Build Juice Shop Docker image
       - name: Build Docker image
         run: docker build -t juice-shop:${{ github.sha }} .
 
-      # Run Juice Shop container for DAST
+      # Run Juice Shop container
       - name: Run Juice Shop container
         run: |
           docker run -d --name juice-shop -p 3000:3000 juice-shop:${{ github.sha }}
           sleep 20
           curl -f http://localhost:3000 || exit 1
 
-      # Prepare ZAP working directory
+      # Prepare ZAP work directory
       - name: Prepare ZAP working directory
         run: |
           mkdir -p zap-wrk
           chmod -R 775 zap-wrk
 
-      # Run DAST with OWASP ZAP
+      # Run OWASP ZAP DAST scan
       - name: Run OWASP ZAP DAST scan
         run: |
-          docker run --rm --network host -v $(pwd)/zap-wrk:/zap/wrk/:rw --user $(id -u):$(id -g) ghcr.io/zaproxy/zaproxy:stable \
-            zap-full-scan.py -t http://localhost:3000 -r zap-report.html -J zap-report.json
+          docker run --rm --network host \
+            -v $(pwd)/zap-wrk:/zap/wrk/:rw \
+            owasp/zap2docker-stable zap-full-scan.py \
+            -t http://localhost:3000 \
+            -r zap-report.html \
+            -J zap-report.json
         continue-on-error: true
 
-      # Set up Python for AI analysis
+      # Set up Python environment
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # Install Python dependencies for AI script
+      # Install OpenAI Python SDK
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install openai
 
-      # Run AI script to analyze results and apply fixes
+      # Analyze scan results using OpenAI API
       - name: Analyze scan results and apply fixes with OpenAI
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          echo "Checking for scan report files:"
+          ls -lh sonar-report.json zap-wrk/zap-report.json || true
+          
           if [ -f sonar-report.json ] && [ -f zap-wrk/zap-report.json ]; then
             python analyze_results.py
           else
@@ -107,7 +112,7 @@ jobs:
           fi
         continue-on-error: true
 
-      # Upload scan reports and patched files
+      # Upload reports and patched files
       - name: Upload scan reports and patched files
         uses: actions/upload-artifact@v4
         with:
@@ -119,8 +124,9 @@ jobs:
             ai-analysis-report.txt
             patched_files/
 
-      # Cleanup: Stop and remove Juice Shop container
+      # Cleanup Docker container
       - name: Cleanup
         run: |
-          docker stop juice-shop
-          docker rm juice-shop
+          docker stop juice-shop || true
+          docker rm juice-shop || true
+
