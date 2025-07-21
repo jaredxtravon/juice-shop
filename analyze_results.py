@@ -32,26 +32,54 @@ def extract_vulnerable_code(file_path, line_number, lines_before=2, lines_after=
     except Exception as e:
         return f"Error reading file {file_path}: {str(e)}", 0, 0
 
+def prioritize_vulnerabilities(sast_issues, dast_alerts):
+    """Prioritize and limit to 5 most critical SAST and DAST vulnerabilities."""
+    # Define severity order for sorting
+    sast_severity_order = {'CRITICAL': 1, 'MAJOR': 2, 'MINOR': 3, 'INFO': 4}
+    dast_risk_order = {'High': 1, 'Medium': 2, 'Low': 3, 'Informational': 4}
+
+    # Sort and limit SAST issues
+    sast_issues_sorted = sorted(
+        sast_issues,
+        key=lambda x: sast_severity_order.get(x.get('severity', 'INFO'), 4)
+    )[:5]
+
+    # Sort and limit DAST alerts
+    dast_alerts_sorted = sorted(
+        dast_alerts,
+        key=lambda x: dast_risk_order.get(x.get('risk', 'Informational'), 4)
+    )[:5]
+
+    return sast_issues_sorted, dast_alerts_sorted
+
 def analyze_with_openai(sast_results, dast_results):
-    """Use OpenAI to analyze scan results, extract vulnerable code, and suggest fixes."""
+    """Use OpenAI to analyze top 5 critical SAST and DAST scan results, extract vulnerable code, and suggest fixes."""
     client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     analysis_output = []
     patched_files = {}
 
-    # Process SonarCloud SAST results
-    for issue in sast_results.get('issues', []):
+    # Prioritize vulnerabilities
+    sast_issues, dast_alerts = prioritize_vulnerabilities(
+        sast_results.get('issues', []),
+        dast_results.get('alerts', [])
+    )
+
+    # Process top 5 SonarCloud SAST results
+    for issue in sast_issues:
         file_path = issue.get('component', '').replace('jaredxtravon_juice-shop:', '')
         rule_id = issue.get('rule', 'Unknown')
         message = issue.get('message', '')
         line_number = issue.get('line', 1)
+        severity = issue.get('severity', 'Unknown')
         code_snippet, start_line, end_line = extract_vulnerable_code(file_path, line_number)
         
         prompt = f"""
 You are a security expert analyzing vulnerabilities for OWASP Juice Shop, a JavaScript-based web application.
-Below is a vulnerability from SonarCloud SAST:
+Below is a critical vulnerability from SonarCloud SAST:
 
 - **File**: {file_path}
 - **Rule**: {rule_id}
+- **Severity**: {severity}
 - **Message**: {message}
 - **Line**: {line_number}
 - **Code Snippet**:
@@ -68,6 +96,7 @@ Format the response as:
 ### Vulnerability: [Rule ID]
 **File**: [File Path]
 **Line**: [Line Number]
+**Severity**: [Severity]
 **Description**: [Message]
 **Vulnerable Code**:
 ```javascript
@@ -81,7 +110,7 @@ Format the response as:
 """
         try:
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "You are a cybersecurity expert specializing in secure JavaScript coding practices."},
                     {"role": "user", "content": prompt}
@@ -102,24 +131,26 @@ Format the response as:
                 except Exception as e:
                     analysis_output.append(f"Error patching {file_path}: {str(e)}")
         except Exception as e:
-            analysis_output.append(f"Error analyzing issue in {file_path}: {str(e)}")
+            analysis_output.append(f"Error analyzing SAST issue in {file_path}: {str(e)}")
 
-    # Process OWASP ZAP DAST results
-    for alert in dast_results.get('alerts', []):
+    # Process top 5 OWASP ZAP DAST results
+    for alert in dast_alerts:
         alert_name = alert.get('alert', 'Unknown')
         description = alert.get('description', '')
+        risk = alert.get('risk', 'Unknown')
         instances = alert.get('instances', [])
         for instance in instances:
             uri = instance.get('uri', '')
             prompt = f"""
 You are a security expert analyzing vulnerabilities for OWASP Juice Shop, a JavaScript-based web application.
-Below is a vulnerability from OWASP ZAP DAST:
+Below is a critical vulnerability from OWASP ZAP DAST:
 
 - **Alert**: {alert_name}
+- **Risk**: {risk}
 - **Description**: {description}
 - **URI**: {uri}
 - **SAST Results (sample)**:
-{json.dumps(sast_results.get('issues', [])[:5], indent=2)}
+{json.dumps(sast_issues[:5], indent=2)}
 
 For this vulnerability:
 1. Suggest a specific fix (code or configuration).
@@ -129,6 +160,7 @@ For this vulnerability:
 Format the response as:
 ### Vulnerability: [Alert Name]
 **URI**: [URI]
+**Risk**: [Risk]
 **Description**: [Description]
 **Fix**:
 ```javascript
@@ -138,7 +170,7 @@ Format the response as:
 """
             try:
                 response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    model="gpt-4o",
                     messages=[
                         {"role": "system", "content": "You are a cybersecurity expert specializing in secure web application practices."},
                         {"role": "user", "content": prompt}
@@ -164,7 +196,7 @@ Format the response as:
     return '\n\n'.join(analysis_output)
 
 def main():
-    """Main function to load scan results and apply AI-driven fixes."""
+    """Main function to load scan results and apply AI-driven fixes for top 5 critical vulnerabilities."""
     sast_results, dast_results = load_scan_results()
     analysis = analyze_with_openai(sast_results, dast_results)
     print(analysis)
