@@ -17,7 +17,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Required for SonarCloud to analyze git history
 
       # Set up Node.js environment
       - name: Set up Node.js
@@ -73,11 +73,17 @@ jobs:
           mkdir -p zap-wrk
           chmod -R 775 zap-wrk
 
-      # Run DAST with OWASP ZAP
+      # Run OWASP ZAP DAST scan
       - name: Run OWASP ZAP DAST scan
         run: |
-          docker run --rm --network host -v $(pwd)/zap-wrk:/zap/wrk/:rw --user $(id -u):$(id -g) ghcr.io/zaproxy/zaproxy:stable \
-            zap-full-scan.py -t http://localhost:3000 -r zap-report.html -J zap-report.json
+          docker run --rm --network host \
+            -v $(pwd)/zap-wrk:/zap/wrk/:rw \
+            --user $(id -u):$(id -g) \
+            ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
+            -t http://localhost:3000 \
+            -r zap-report.html \
+            -J zap-report.json \
+            -d
         continue-on-error: true
 
       # Set up Python environment
