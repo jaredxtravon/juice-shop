@@ -64,26 +64,28 @@ jobs:
       - name: Run Juice Shop container
         run: |
           docker run -d --name juice-shop -p 3000:3000 juice-shop:${{ github.sha }}
-          sleep 20
+          for i in {1..3}; do curl -f http://localhost:3000 && break || sleep 15; done
           curl -f http://localhost:3000 || exit 1
 
       # Prepare ZAP work directory
       - name: Prepare ZAP working directory
         run: |
           mkdir -p zap-wrk
-          chmod -R 775 zap-wrk
+          chmod -R 777 zap-wrk
 
       # Run OWASP ZAP DAST scan
       - name: Run OWASP ZAP DAST scan
         run: |
           docker run --rm --network host \
-          -v $(pwd)/zap-wrk:/zap/wrk/:rw \
-          -w /zap/wrk \
-          ghcr.io/zaproxy/zap-full-scan \
-          zap-baseline.py \
-          -t http://localhost:3000 \
-          -r zap-report.html \
-          -J zap-report.json
+            -v $(pwd)/zap-wrk:/zap/wrk/:rw \
+            -w /zap/wrk \
+            --user $(id -u):$(id -g) \
+            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+            -t http://localhost:3000 \
+            -r zap-report.html \
+            -J zap-report.json \
+            -m 0 \
+            -d > zap-debug.log 2>&1
         continue-on-error: true
 
       # Set up Python environment
@@ -104,12 +106,14 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           echo "Checking for scan report files:"
-          ls -lh sonar-report.json zap-wrk/zap-report.json || true
+          ls -lh zap-wrk/zap-report.json zap-wrk/zap-report.html || true
+          ls -lh sonar-report.json || true
           
           if [ -f sonar-report.json ] && [ -f zap-wrk/zap-report.json ]; then
             python analyze_results.py
           else
             echo "Missing scan reports. Check SAST/DAST steps."
+            cat zap-debug.log || true
             exit 1
           fi
         continue-on-error: true
@@ -123,6 +127,7 @@ jobs:
             sonar-report.json
             zap-wrk/zap-report.json
             zap-wrk/zap-report.html
+            zap-debug.log
             ai-analysis-report.txt
             patched_files/
 
