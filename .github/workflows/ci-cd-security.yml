@@ -73,15 +73,11 @@ jobs:
           mkdir -p zap-wrk
           chmod -R 775 zap-wrk
 
-      # Run OWASP ZAP DAST scan
+      # Run DAST with OWASP ZAP
       - name: Run OWASP ZAP DAST scan
         run: |
-          docker run --rm --network host \
-            -v $(pwd)/zap-wrk:/zap/wrk/:rw \
-            owasp/zap2docker-stable zap-full-scan.py \
-            -t http://localhost:3000 \
-            -r zap-report.html \
-            -J zap-report.json
+          docker run --rm --network host -v $(pwd)/zap-wrk:/zap/wrk/:rw --user $(id -u):$(id -g) ghcr.io/zaproxy/zaproxy:stable \
+            zap-full-scan.py -t http://localhost:3000 -r zap-report.html -J zap-report.json
         continue-on-error: true
 
       # Set up Python environment
