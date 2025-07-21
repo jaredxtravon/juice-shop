@@ -85,6 +85,7 @@ jobs:
             -r zap-report.html \
             -J zap-report.json \
             -m 0 \
+            -z "-config global.homedir=/zap/wrk" \
             -d > zap-debug.log 2>&1
         continue-on-error: true
 
@@ -136,4 +137,3 @@ jobs:
         run: |
           docker stop juice-shop || true
           docker rm juice-shop || true
-
