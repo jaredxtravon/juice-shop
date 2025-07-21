@@ -79,15 +79,17 @@ jobs:
           docker run --rm --network host \
             -v $(pwd)/zap-wrk:/zap/wrk/:rw \
             -w /zap/wrk \
-            --user $(id -u):$(id -g) \
             ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
             -t http://localhost:3000 \
             -r zap-report.html \
             -J zap-report.json \
             -m 0 \
-            -z "-config global.homedir=/zap/wrk" \
             -d > zap-debug.log 2>&1
         continue-on-error: true
+
+      # Fix ZAP report permissions
+      - name: Fix ZAP report permissions
+        run: chmod -R 777 zap-wrk || true
 
       # Set up Python environment
       - name: Set up Python
